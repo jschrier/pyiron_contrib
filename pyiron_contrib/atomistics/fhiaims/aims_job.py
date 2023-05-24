@@ -5,24 +5,28 @@ from pyiron_base import DataContainer
 from .dft_io import (write_input, DFTOutput)
 
 
+# everything from the Basics of Running FHI-aims tutorials "https://fhi-aims-club.gitlab.io/tutorials/basics-of-running-fhi-aims/1-Molecules/"
+
+# these should be the default settings.  
+# TODO: think more clearly about what behavior we actually want...I'm defaulting to molecular for now
+# TODO:  "species" was the best name that I could find for thsi, but I don't know...
+
 input_dict = {
-    "total_spin": 0,
-    "total_charge": 0,
-    "functional": "GGA PBE",
-    "basis": "Type TZP",
-    "coretype": "Large",
-    "opt": False,
-    "geo_iteration":100,
-    "e_iteration": 300,
-    "electronic_conv": 1e-6,
-    "unrestricted":True
+    "xc": "pbe",
+    "relativistic": "atomic_zora scalar",
+    "relax_geometry": None,
+    "relax_unit_cell": None,
+    "spin": "none",  # "none" is defined string keyword, *not* python None
+    "species": "light",
+    "k_grid": None,
+    "k_grid_density": None
 }
 
 class DFTjob(AtomisticGenericJob):
     def __init__(self, project, job_name):
         super(DFTjob, self).__init__(project, job_name)
         self.__version__ = "0.1"
-        self.__name__ = "DFT"
+        self.__name__ = "FHIaims"
         self.input = DataContainer(input_dict, table_name="control")
         self._executable_activate()
         self._compress_by_default = True
@@ -30,21 +34,22 @@ class DFTjob(AtomisticGenericJob):
     def write_input(self):
         write_input(
             structure=self.structure,
-            total_spin=int(self.input["total_spin"]),
-            total_charge=int(self.input["total_charge"]),
-            functional=self.input["functional"],
-            basis=self.input["basis"],
-            dispersion=self.input["dispersion"],
-            opt=self.input["opt"],
-            geo_iteration=int(self.input["geo_iteration"]),
-            e_iteration=int(self.input["e_iteration"]),
-            electronic_conv=float(self.input["electronic_conv"]),
-            unrestricted=self.input['unrestricted'],
-            filePath=os.path.join(self.working_directory, "input.ams")
+            xc=self.input["xc"],
+            relativistic=self.input["relativistic"],
+            relax_geometry=self.input["relax_geometry"],
+            relax_unit_cell=self.input["relax_unit_cell"],
+            spin=self.input["spin"],
+            species=self.input["species"],
+            k_grid=self.input["k_grid"],
+            k_grid_density=self.input["k_grid_density"],
+            control_filepath=os.path.join(self.working_directory, "control.in"),
+            geometry_filepath=os.path.join(self.working_directory, "geometry.in")
         )
 
+# TODO: work on output
+
     def collect_output(self):
-        output_file = os.path.join(self.working_directory, 'output.ams')
+        output_file = os.path.join(self.working_directory, 'aims.log')
         if os.path.exists(output_file):
             output = DFTOutput(filePath=output_file)
             output_dict = output.__dict__
@@ -56,6 +61,8 @@ class DFTjob(AtomisticGenericJob):
                 del output_dict['final_structure'] # Remove ase atoms (incompatible with hd5)
                 del output_dict['init_structure'] # Remove ase atoms (incompatible with hd5)
                 h5["dft"] = output_dict
+
+# TODO: think about MPI and HDF
 
     def drop_status_to_aborted(self):
         """

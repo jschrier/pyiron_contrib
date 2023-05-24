@@ -8,100 +8,97 @@ from ase.atoms import Atoms as ASEAtoms, Atom as ASEAtom
 import ase.units as units
 import numpy as np
 
-
 # Functions
-def write_input(structure, total_charge=0, total_spin=0, functional="GGA PBE", basis="Type TZP", 
-                coretype="None", opt=False, geo_iteration=100,
-                e_iteration=300,  electronic_conv=1e-6, unrestricted=True,
-                filePath='input.adf'):
-    """write_input write input file for DFT (ADF) code.
+def write_input(structure, xc = "pbe", 
+                relativistic = "atomic_zora scalar", 
+                relax_geometry = None,
+                relax_unit_cell = None,
+                spin = "none",
+                species = "light",
+                k_grid = None,
+                k_grid_density = None,
+                control_filepath = "control.in",
+                geometry_filepath = "geometry.in",
+                species_filepath = "species_defaults/defaults_2020/"):
+    """write_input write input file for DFT (FHI-aims) code.
 
     Parameters
     ----------
     structure : ase.atoms.Atoms
         ASE atoms of structure you want to use.
-    total_charge : int, optional
-        total charge on the system you are calculating, by default 0
-    total_spin : int, optional
-        spin (number of unpaired electrons) on the system, by default 0
-    functional : str, optional
-        dft xc functional to use, by default "GGA PBE"
-    basis : str, optional
-       basis set to use, by default "Type TZP"
-    coretype : str, optional
-        How large of frozen-core to use, by default "Large", "Large","Small", or "None"
-    opt : bool, optional
-        perform Geo optimization, by default False
-    geo_iteration : int, optional
-        how many steps to take in geometry optimization, default 100
-    e_iteration : int, optional
-       max number of electronic (SCF) iterations per step, by default 300
-    electronic_conv : float, optional
-        electronic convergence tolerance, by default 1e-6
-    unrestricted : bool, optional
-        perform calculation as unrestricted?, by default True
-    filePath : str, optional
-        path to input file to write, by default 'input.adf'
+    xc : str, optional
+        dft xc functional to use, by default "pbe"
+    relativistic: str, optional
+        relativistic treatment to use, by default "atomic_zora scalar"
+    relax_unit_cell: Boolean, optional
+        should unit cell be relaxed in periodic systems, by default None
+    ...
+    # TODO:  write some more, once we decide on correct default choices
     """
     # Variables
-    file_lines = []
+    control_filelines = []
+    geometry_filelines = []
+    unique_species_filenames = {}
 
-    # Format ATOMS section
-    atom_lines = [
-        "{} {} {} {}\n".format(s, pos[0], pos[1], pos[2])
+    control_filelines.append("xc {}\n".format(xc))
+    control_filelines.append("relativistic {}\n".format(relativistic))
+    control_filelines.append("spin {}\n".format(spin))
+
+    # TODO: smarter checking that supplied keywords are valid
+
+    if (relax_geometry != None):
+        control_filelines.append("relax_geometry {}\n".format(relax_geometry))
+
+    if (relax_unit_cell != None):
+        control_filelines.append("relax_unit_cell {}\n".format(relax_unit_cell))
+
+    # TODO: smarter checking between mutually exclusive options
+
+    if (k_grid != None):
+        control_filelines.append("k_grid {}\n".format(k_grid))
+
+    if (k_grid_density != None):
+        control_filelines.append("k_grid_density {}\n".format(k_grid_density))
+
+
+    # Find the elements and append the potentials
+    # TODO:  for now we only treat the defaults...
+    # TODO:  It's dodgy to assume unix-style filepaths joining... 
+
+    unique_species_filenames = set( 
+        ["{}/{}/{:02d}_{}_default".format(
+            species_filepath, species, Z, abbrev) 
+            for Z, abbrev 
+            in zip(structure.get_atomic_numbers(),
+                   structure.get_chemical_symbols())
+        ]
+    )
+
+    # write control.in file, along with the species info
+
+    with open(control_filepath, 'w') as outFile:
+        outFile.writelines(control_filelines)
+        # append the species info.
+        # safer to use python than to assume that cat exists
+        for f in unique_species_filenames:
+            with open(f, 'r') as inFile:
+                outFile.writelines(inFile.readlines())
+        
+
+    # Format geometry.in file 
+    # TODO: Add functionality for charge guesses, moments, etc.
+    geometry_filelines = [
+        "atom {} {} {} {}\n".format(pos[0], pos[1], pos[2], s)
         for s, pos in zip(structure.get_chemical_symbols(), structure.positions)
-    ]
+    ]    
+    # Write geometry.in file
+    with open(geometry_filepath, 'w') as outFile:
+        outFile.writelines(geometry_filelines)
 
-    # Setup input lines
-    file_lines.append("System\n")
-    file_lines.append('Charge {}\n'.format(total_charge))
-    file_lines.append("Atoms\n")
 
-    for atom in atom_lines:
-        file_lines.append(atom)
 
-    file_lines.append('End\n')
-    file_lines.append('End\n')
 
-    if opt:
-        file_lines.append('Task GeometryOptimization\n')
-        file_lines.append('GeometryOptimization\n')
-        file_lines.append('\tMaxIterations {}\n'.format(geo_iteration))
-        file_lines.append('End\n')
-    else:
-        file_lines.append('Properties\n')
-        if 'hybrid' not in functional.lower():
-            file_lines.append('\tGradients Yes\n')
-        file_lines.append('End\n')
-        file_lines.append('Task SinglePoint\n')
-    file_lines.append('Engine ADF\n')
-    file_lines.append('Basis\n')
-    file_lines.append('\t{}\n'.format(basis))
-    file_lines.append('\tCore {}\n'.format(coretype))
-    file_lines.append('End\n')
-    file_lines.append('XC\n')
-    file_lines.append('\t{}\n'.format(functional))
-    file_lines.append('End\n')
-    file_lines.append('SAVE TAPE21\n')
-    file_lines.append('SCF\n')
-    electronic_conv_2nd_str = "%.e" % 1e-3
-    electronic_conv_str = "%.e" % electronic_conv
-    file_lines.append('\titerations {}\n'.format(e_iteration))
-    file_lines.append('\tconverge ' + electronic_conv_str + ' ' + electronic_conv_2nd_str + '\n')
-    file_lines.append('End\n')
-    file_lines.append('BeckeGrid\n')
-    file_lines.append('End\n')
-    if unrestricted:
-        file_lines.append('Unrestricted Yes\n')
-        file_lines.append('SpinPolarization {}\n'.format(total_spin))
-    else:
-        file_lines.append('Unrestricted No\n')
-    file_lines.append('EndEngine\n')
-
-    # Write input file
-    with open(filePath, 'w') as outFile:
-        outFile.writelines(file_lines)
-
+# TODO: implement output parsing
 
 class DFTOutput:
     """ Output parser
