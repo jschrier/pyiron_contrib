@@ -2,14 +2,14 @@ import os
 from pyiron_atomistics.atomistics.job.atomistic import AtomisticGenericJob
 from pyiron_atomistics.atomistics.structure.atoms import ase_to_pyiron
 from pyiron_base import DataContainer
-from .dft_io import (write_input, DFTOutput)
-
+from .FHIaims_input import write_input
+from .FHIaims_output import FHIaimsOutput
 
 # everything from the Basics of Running FHI-aims tutorials "https://fhi-aims-club.gitlab.io/tutorials/basics-of-running-fhi-aims/1-Molecules/"
 
 # these should be the default settings.  
 # TODO: think more clearly about what behavior we actually want...I'm defaulting to molecular for now
-# TODO:  "species" was the best name that I could find for thsi, but I don't know...
+# TODO:  "species" was the best name that I could find for this, but I don't know...
 
 input_dict = {
     "xc": "pbe",
@@ -22,9 +22,9 @@ input_dict = {
     "k_grid_density": None
 }
 
-class DFTjob(AtomisticGenericJob):
+class FHIaims(AtomisticGenericJob):
     def __init__(self, project, job_name):
-        super(DFTjob, self).__init__(project, job_name)
+        super(FHIaims, self).__init__(project, job_name)
         self.__version__ = "0.1"
         self.__name__ = "FHIaims"
         self.input = DataContainer(input_dict, table_name="control")
@@ -46,12 +46,12 @@ class DFTjob(AtomisticGenericJob):
             geometry_filepath=os.path.join(self.working_directory, "geometry.in")
         )
 
-# TODO: work on output
+# TODO: implement output
 
     def collect_output(self):
         output_file = os.path.join(self.working_directory, 'aims.log')
         if os.path.exists(output_file):
-            output = DFTOutput(filePath=output_file)
+            output = FHIaimsOutput(filePath=output_file)
             output_dict = output.__dict__
             final_structure = ase_to_pyiron(output.final_structure)
             with self.project_hdf5.open("output/generic") as h5out:
@@ -60,7 +60,7 @@ class DFTjob(AtomisticGenericJob):
                 final_structure.to_hdf(hdf=h5)
                 del output_dict['final_structure'] # Remove ase atoms (incompatible with hd5)
                 del output_dict['init_structure'] # Remove ase atoms (incompatible with hd5)
-                h5["dft"] = output_dict
+                h5["FHIaims"] = output_dict
 
 # TODO: think about MPI and HDF
 
@@ -71,13 +71,13 @@ class DFTjob(AtomisticGenericJob):
         self.status.finished = True
 
     def to_hdf(self, hdf=None, group_name=None):
-        super(DFTjob, self).to_hdf(hdf=hdf, group_name=group_name)
+        super(FHIaims, self).to_hdf(hdf=hdf, group_name=group_name)
         self._structure_to_hdf()
         with self.project_hdf5.open("input") as h5in:
             self.input.to_hdf(h5in)
 
     def from_hdf(self, hdf=None, group_name=None):
-        super(DFTjob, self).from_hdf(hdf=hdf, group_name=group_name)
+        super(FHIaims, self).from_hdf(hdf=hdf, group_name=group_name)
         self._structure_from_hdf()
         with self.project_hdf5.open("input") as h5in:
             self.input.from_hdf(h5in)
