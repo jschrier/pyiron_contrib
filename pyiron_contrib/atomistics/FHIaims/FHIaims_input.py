@@ -10,7 +10,7 @@ import ase.units as units
 
 # Functions
 def write_input(structure, 
-                xc = "pbe", 
+                xc ="pbe", 
                 relativistic = "atomic_zora scalar", 
                 relax_geometry = None,
                 relax_unit_cell = None,
