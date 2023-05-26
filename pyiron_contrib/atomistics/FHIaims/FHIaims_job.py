@@ -1,6 +1,7 @@
 import os
 from pyiron_atomistics.atomistics.job.atomistic import AtomisticGenericJob
 from pyiron_atomistics.atomistics.structure.atoms import ase_to_pyiron
+from ase.io.aims import read_aims
 from pyiron_base import DataContainer, state
 from .FHIaims_input import write_input
 from .FHIaims_output import collect_output
@@ -65,8 +66,13 @@ class FHIaims(AtomisticGenericJob):
             species_directory = os.path.join(self.species_directory, species))
 
 
-# TODO: implement output
-
+    def restart_geometry(self):
+        self.decompress()
+        restart_file = os.path.join(self.working_directory, 'geometry.in.next_step')
+        structure = ase_to_pyiron(read_aims(restart_file))
+        self.compress()
+        return structure
+    
     def collect_output(self):
         output_dict, output_dft_dict, meta_info_dict = collect_output      (
              working_directory=self.working_directory,
