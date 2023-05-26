@@ -164,7 +164,7 @@ class EnergyForcesStressesStreamParser:
             self.current_forces = []
 
         if self.force_block_flag and line.strip().startswith("|"):
-            self.current_forces.append([float(f) for f in line.split()[-3:]])
+            self.current_forces.append([float(f) for f in line.split()[7:]])
 
         if "|              Analytical stress tensor" in line or "Numerical stress tensor" in line:
             self.stress_block_flag = True
@@ -250,7 +250,7 @@ def collect_output(working_directory="", FHI_output_file="aims.log"):
         'energy_tot': np.array(efs_stream_parser.free_energies_list),
         'forces': np.array(efs_stream_parser.forces_lst),
         'positions': np.array(positions_traj),
-        # 'steps'
+        'steps': np.arange(len(positions_traj))
         # 'temperature'
         # 'computation_time'
         # 'unwrapped_positions'
