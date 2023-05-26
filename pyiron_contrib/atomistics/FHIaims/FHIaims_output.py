@@ -2,6 +2,16 @@
 
 """
 Output parsing module for FHI-aims
+
+This is a proof of principle, largely cribbed from Yury Lysogorskiy's (uncommitted) commit at https://github.com/pyiron/pyiron_contrib/commit/e18628fcb25c102ae15475018c8547fa5382fa77 
+
+Some alternative ideas (Not implemented) would be to:
+
+- modify GIMS: https://gims.ms1p.org/static/index.html
+- use the NOMAD FHIaims parser https://github.com/nomad-coe/nomad-parser-fhi-aims/blob/master/fhiaimsparser/fhiaims_parser.py
+- use ASE to parse https://databases.fysik.dtu.dk/ase/ase/io/formatoptions.html
+- Or to use the JSON output built into FHI-aims, along with some custom code
+
 """
 
 # Imports
@@ -154,7 +164,7 @@ class EnergyForcesStressesStreamParser:
             self.current_forces = []
 
         if self.force_block_flag and line.strip().startswith("|"):
-            self.current_forces.append([float(f) for f in line.split()[-3:]])
+            self.current_forces.append([float(f) for f in line.split()[7:]])
 
         if "|              Analytical stress tensor" in line or "Numerical stress tensor" in line:
             self.stress_block_flag = True
@@ -240,7 +250,7 @@ def collect_output(working_directory="", FHI_output_file="aims.log"):
         'energy_tot': np.array(efs_stream_parser.free_energies_list),
         'forces': np.array(efs_stream_parser.forces_lst),
         'positions': np.array(positions_traj),
-        # 'steps'
+        'steps': np.arange(len(positions_traj))
         # 'temperature'
         # 'computation_time'
         # 'unwrapped_positions'
