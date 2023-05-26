@@ -6,352 +6,268 @@ Output parsing module for FHI-aims
 
 # Imports
 import re
-from ase.atoms import Atoms as ASEAtoms, Atom as ASEAtom
-import ase.units as units
+import os
+import numpy as np
+#from ase.atoms import Atoms as ASEAtoms, Atom as ASEAtom
+#import ase.units as units
+
+FHI_OUT_KEYWORD_AIMS_UUID_TAG = "aims_uuid"
+EXPORT_AIMS_UUID = FHI_OUT_KEYWORD_AIMS_UUID_TAG
+EXPORT_FHI_AIMS_VERSION = "fhi-aims-version"
+EXPORT_FHI_AIMS_PARAMETERS = "fhi-aims-parameters"
+EXPORT_TOTAL_TIME = "total_time"
 
 
-class FHIaimsOutput:
-    """ Output parser
-    """
-    def __init__(self, filePath):
-        """__init__ execute the following block when Class is called.
+class InitialGeometryStreamParser:
+    def __init__(self):
+        self._input_geometry_block_flag = False
+        self._inp_geom_unit_cell_flag = False
 
-        Parameters
-        ----------
-        filePath : str
-            path to output file.
-        """
-        with open(filePath,'r') as file1:
-            self.fileLines = file1.readlines()
-        with open(filePath,'r') as file1:
-            self.fileStr = file1.read()
-        self.read_properties()
-        del self.fileStr
-        del self.fileLines
+        # accumulator lists for current atomic structure
+        self.lattice_vectors_lst = []
+        self.positions_lst = []
+        self.species_lst = []
 
-    def read_adf_version(self):
-        """read_adf_version get the adf version
-        """
-        for line in self.fileLines:
-            sline = line.strip().split()
-            if ('RunTime' in line) and ((sline[0] == 'AMS') or (sline[0] == 'ADF')):
-                self.version = sline[1]
-                break
+        self._stop_processing = False
 
-    def read_energy(self):
-        """
-        Read energ(ies) from output file.
-        """
+    def process_line(self, line):
+        if self._stop_processing:
+            return
 
-        # Variables
-        energy = "None"
-        # Find energy in a.u.
-        for line in reversed(self.fileLines):
-            # Find energy
-            if 'Energy (hartree)' in line:
-                energy = float(line.split()[-1]) * units.Hartree
-                break
+        line = line.strip(" \t\n")
 
-        self.energy = energy
+        if not line.startswith("|") and self._input_geometry_block_flag:
+            self._input_geometry_block_flag = False
+            self._stop_processing = True
 
-    def read_geo_steps_energies(self):
-        """read_geo_steps read in the number of geometry steps taken in output file and energies
-        """
-        steps = 0
-        energies = []
-        try:
-            for line in self.fileLines:
-                if "current energy" in line:
-                    steps += 1
-                    sline = line.strip().split()
-                    if 'current' == sline[0]:
-                        energies.append(float(sline[2])*units.Hartree)
-            self.steps = steps
-            if len(energies) > 0:
-                self.energies = energies
-                self.energy = energies[-1]
-            else:
-                self.read_energy()
-                self.energies = [self.energy]
-        except:
-            self.steps = 0
-            self.energies = []
-            self.read_energy()
+        if line.startswith("Input geometry:"):
+            self._input_geometry_block_flag = True
 
-    def read_coordinates(self):
-        """
-        Read structure from geometry optimization output file.
-        """
+        if self._input_geometry_block_flag and line.startswith("|"):
+            line = line.strip(" \t\n|")
 
-        # Variables
-        atomsList = []
-        atomIdx = -1
+            if len(self.lattice_vectors_lst) >= 3:
+                self._inp_geom_unit_cell_flag = False
 
-        read = False
-        # Get atoms
-        tmp_atomlist = []
-        for line in self.fileLines[atomIdx + 1:]:
-            # Format line
-            line = line.strip().split()
+            if self._inp_geom_unit_cell_flag:
+                self.lattice_vectors_lst.append([float(s) for s in line.split()[:3]])
 
-            if read and (len(line) > 0):
-                # End if "Index" encountered
-                if (line[0] == "Index"):
-                    continue
+            if line.startswith("Unit cell:"):
+                self._inp_geom_unit_cell_flag = True
 
-                # Gather atoms
-                symbol = line[1]
-                tmp_atomlist.append([symbol, float(line[2]), float(line[3]), float(line[4])])
-            else:
-                if read:
-                    read = False
-                    atomsList.append(tmp_atomlist.copy())
-                    tmp_atomlist = []
-            if (len(line) > 0):
-                if line[0] == 'Atoms':
-                    read = True
+            if "Species" in line:
+                line_tags = line.split()
+                atom_positions = [float(s) for s in line_tags[3:6]]
+                atom_species = line_tags[2]
 
-        if len(atomsList) > 1:
-            return atomsList[:-1] # Last one is repeat of final geometry
-        elif len(atomsList) == 1:
-            return atomsList
-        else:
-            return None
-
-    def read_forces(self):
-        """
-        Read structure from geometry optimization output file.
-        """
-        # Variables
-        forcesList = []
-        atomIdx = -1
-        read = False
-        # Get atoms
-        tmp_atomlist = []
-        
-        for line in self.fileLines[atomIdx + 1:]:
-            # Format line
-            line = line.strip().split()
-
-            if read and (len(line) > 0) and (skip == 0):
-                # Skip lines "---------"
-                if (len(line) != 5):
-                    continue
-
-                # Gather atoms
-                symbol = line[1]
-                try: #Convert gradients to forces!
-                    tmp_atomlist.append([symbol, -float(line[2]), -float(line[3]), -float(line[4])])
-                except ValueError:
-                    tmp_atomlist.append([symbol,np.inf,np.inf,np.inf])
-            elif read and (skip > 0):
-                skip -= 1
-            else:
-                if read:
-                    read = False
-                    forcesList.append(tmp_atomlist.copy())
-                    tmp_atomlist = []
-            if len(line) > 0:
-                if (line[0] == 'Energy') and (line[1] == 'gradients'):
-                    read = True
-                    skip=3
-        if len(forcesList) > 1:
-            return forcesList[:-1] # Last one is repeat of final geometry
-        elif len(forcesList) == 1:
-            return forcesList
-        else:
-            return None
-
-    def get_rxyz_string(self,atoms,forces,energy,skip_forces=False):
-        """dump the ase_atoms to rxyz file string"""
-        natom = len(atoms)
-        ss = ''
-        # write an xyz file first
-        try:
-            ss += "%d\n\n" % natom
-            for atom in atoms:
-                symb = atom[0]
-                coords = atom[1:]
-                ss += "%2s %12.6f %12.6f %12.6f\n" % (symb, coords[0], coords[1], coords[2])
-            ss += "\n"
-            # then force
-            if not skip_forces:
-                ss += "FORCES\n"
-                for force in forces:
-                    symb = force[0]
-                    atom_force = force[1:]
-                    ss += "%3s %22.14e %22.14e %22.14e\n" % (symb, atom_force[0], atom_force[1], atom_force[2])
-                ss += '\n'
-
-            # then different properties
-            ss += "ENERGY %22.14f\n" % (energy/units.Hartree) # rxyz has hartree
-            ss += 'SOURCE %s\n' % ('ADF' + self.version)
-            return ss
-        except:
-            return None
+                self.positions_lst.append(atom_positions)
+                self.species_lst.append(atom_species)
 
 
-    def read_trajectory_rxyz(self):
-        """read_trajectory_rxyz read optimization trajectory into rxyz files with energy/forces
-        """
-        atomsList = self.read_coordinates()
-        forcesList = self.read_forces()
-        energies = self.energies
-        skip_forces = False
-        if forcesList is None:
-            skip_forces = True 
-            forcesList = [[]]*len(atomsList)
-        self.rxyz_trajectory = []
-        for i,tatoms in enumerate(atomsList):
-            if (i+1 > len(forcesList)) or (i+1 > len(energies)):
-                break
-            rxyz = self.get_rxyz_string(atoms=tatoms,forces=forcesList[i],energy=energies[i],skip_forces=skip_forces)
-            self.rxyz_trajectory.append(rxyz)
-        
+class UpdateGeometryStreamParser:
+    def __init__(self):
+        self._atomic_structure_block_flag = False
 
-    def read_homo_lumo_gap(self):
-        """
-        Read homo-lumo gap information.
-        """
-        try:
-            # Variables
-            hlDict = {'spin_1': {'homo': 0.0, 'lumo': 0.0}, 'spin_2': {'homo': 0.0, 'lumo': 0.0}}
-            reKey_homo = "\s*HOMO.*\n"
-            reKey_lumo = "\s*LUMO.*\n"
+        # accumulator lists for all atoomic structures
+        self.lattice_vectors_traj = []
+        self.positions_traj = []
+        self.species_traj = []
 
-            # Apply regex
-            result_homo = (re.findall(reKey_homo, self.fileStr))[-2:]
-            result_lumo = (re.findall(reKey_lumo, self.fileStr))[-2:]
+        # accumulator lists for current atomic structure
+        self._lattice_vectors_lst = []
+        self._positions_lst = []
+        self._species_lst = []
 
-            # Format result into dictionary
-            hlDict['spin_1']['homo'] = float(result_homo[0].strip().split()[4])*units.Hartree
-            hlDict['spin_1']['lumo'] = float(result_lumo[0].strip().split()[4])*units.Hartree
-            hlDict['spin_2']['homo'] = float(result_homo[1].strip().split()[4])*units.Hartree
-            hlDict['spin_2']['lumo'] = float(result_lumo[1].strip().split()[4])*units.Hartree
+    def process_line(self, line):
 
-            self.homo_lumo = hlDict
-        except:
-            self.homo_lumo = {}
+        line = line.strip(" \t\n")
 
+        if line.startswith("Updated atomic structure:"):  # or line.startswith("Final atomic structure:"):
+            self._atomic_structure_block_flag = True
 
-    def get_final_geo(self):
-        """convert_rxyz_ase take in rxyz string and convert to ase atoms
-        """
-        try:
-            rxyzstr = self.trajectory[-1]
-            lines = rxyzstr.split('\n')
-            atoms = []
-            for line in lines:
-                sline = line.split()
-                if 'FORCES' in line:
-                    break
-                elif len(sline) == 4:
-                    symbol = sline[0]
-                    coords = (float(sline[1]),float(sline[2]),float(sline[3]))
-                    if len(atoms) == 0:
-                        atoms = ASEAtoms([ASEAtom(symbol,coords)])
-                    else:
-                        atoms.append(ASEAtom(symbol,coords))
-            self.final_structure = atoms
-        except:
-            self.final_structure = None
+        if line.startswith("-------------") and self._atomic_structure_block_flag:
+            self._atomic_structure_block_flag = False
+
+            # save collected structure
+            if len(self._lattice_vectors_lst) > 0:
+                self.lattice_vectors_traj.append(self._lattice_vectors_lst)
+            self.positions_traj.append(self._positions_lst)
+            self.species_traj.append(self._species_lst)
+
+            # reset accumulator lists
+            self._lattice_vectors_lst = []
+            self._positions_lst = []
+            self._species_lst = []
+
+        if self._atomic_structure_block_flag:
+
+            if "lattice_vector" in line:
+                self._lattice_vectors_lst.append([float(s) for s in line.split()[1:4]])
+
+            if line.startswith("atom "):
+                line_tags = line.split()
+                atom_positions = [float(s) for s in line_tags[1:4]]
+                atom_species = line_tags[4]
+
+                self._positions_lst.append(atom_positions)
+                self._species_lst.append(atom_species)
 
 
-    def _check_error(self, errorKey):
-        # Look for error key
-        for line in self.fileLines:
-            if (line == errorKey):
-                return True
-        return False
+class EnergyForcesStressesStreamParser:
+    def __init__(self):
+        self.free_energies_list = []
+        self.energies_corrected_list = []
+        self.energies_uncorrected_list = []
 
-    def error_scf_incomplete(self):
-        """
-        Identify if there was an error with SCF convergence.
-        """
+        self.forces_lst = []
+        self.stresses_lst = []
 
-        # Variables
-        errorKey = "SCF did not converge\n"
+        self.block_flag = False
+        self.force_block_flag = False
+        self.stress_block_flag = False
 
-        return self._check_error(errorKey=errorKey)
+        self.stress_line_counter = 0
+        self.current_forces = []
+        self.current_stresses = []
 
+    def process_line(self, line):
+        if "Energy and forces in a compact form:" in line:
+            self.block_flag = True
 
-    def error_geomopt_incomplete(self):
-        """
-        Identify if there was an error with the geometry optimization.
-        """
+        if self.block_flag and "------------------------------------" in line:
+            self.block_flag = False
+            self.force_block_flag = False
+            self.forces_lst.append(self.current_forces)
 
-        # Variables
-        errorKey = "Geometry optimization did NOT converge\n"
+        if self.block_flag and 'Total energy corrected        :' in line:
+            E0 = float(line.split()[5])
+            self.energies_corrected_list.append(E0)
+        elif self.block_flag and 'Electronic free energy        :' in line:
+            F = float(line.split()[5])
+            self.free_energies_list.append(F)
+        elif self.block_flag and 'Total energy uncorrected      :' in line:
+            E_uncorr = float(line.split()[5])
+            self.energies_uncorrected_list.append(E_uncorr)
 
-        return self._check_error(errorKey=errorKey)
+        if self.block_flag and "Total atomic forces" in line:
+            self.force_block_flag = True
+            self.current_forces = []
 
+        if self.force_block_flag and line.strip().startswith("|"):
+            self.current_forces.append([float(f) for f in line.split()[-3:]])
 
-    def error_job_quit(self):
-        """
-        Identify if there was an error with the job running made by the scheduler.
-        """
+        if "|              Analytical stress tensor" in line or "Numerical stress tensor" in line:
+            self.stress_block_flag = True
+            self.current_stresses = []
+            self.stress_line_counter = 0
 
-        # Variables
-        errorKey = "Process received SIGTERM\n"
+        if self.stress_block_flag:
+            self.stress_line_counter += 1
 
-        return self._check_error(errorKey=errorKey)
+        if self.stress_block_flag and self.stress_line_counter in [6, 7, 8]:
+            sline = [float(f) for f in line.split()[2:5]]
+            self.current_stresses.append(sline)
 
-    def error_thermo_incomplete(self):
-        """
-        Identify if there was an error with the vibrational analysis
-        """
-
-        errorKey = "" ######## NEED TO FILL
-
-        return self._check_error(errorKey=errorKey)
-
-
-    def error_check(self):
-        """
-        Get errors from output file.
-        """
-
-        # Variables
-        errorcodeList = []
-
-        # Get errors
-        errorDict = {"SCF_ERROR": self.error_scf_incomplete(),
-                    "GEOMOPT_ERROR": self.error_geomopt_incomplete(),
-                    "JOB_ERROR": self.error_job_quit(),
-                    "THERMO_ERROR":self.error_thermo_incomplete()}
-
-        # Populate errorcode list
-        for key in errorDict:
-            if errorDict[key] is True:
-                errorcodeList.append(key)
-
-        self.errorcodeList = errorcodeList
+        if self.stress_line_counter > 8:
+            self.stress_block_flag = False
+            self.stress_line_counter = 0
+            self.stresses_lst.append(self.current_stresses)
 
 
+class MetaInfoStreamParser:
+    _total_time_pattern = re.compile("Total time\s*:\s*([0-9.]*)\s*s")
 
-    def read_properties(self):
-        """
-        Read properties from ADF output file.
-        """
+    FHI_OUT_KEYWORD_TOTAL_TIME = "Total time"
+    FHI_OUT_KEYWORD_AIMS_UUID_TAG = "aims_uuid"
+    FHI_OUT_KEYWORD_VERSION_TAG = "Version"
 
-        # Adf version
-        self.read_adf_version()
+    def __init__(self):
+        self.version = None
+        self.aims_uuid = None
+        self.total_time = None
 
-        # HOMO-LUMO
-        self.read_homo_lumo_gap()
+    def process_line(self, line):
 
-        # Steps
-        self.read_geo_steps_energies()
+        line = line.strip(" \t\n")
 
-        # Get trajectory:
-        self.read_trajectory_rxyz()
+        if line.startswith(self.FHI_OUT_KEYWORD_VERSION_TAG):
+            self.version = " ".join(line.split()[1:])
+        elif line.startswith(self.FHI_OUT_KEYWORD_AIMS_UUID_TAG):
+            self.aims_uuid = " ".join(line.split(":")[1:]).strip()
 
-        # Get final geometry as ase_atoms
-        self.get_final_geo()
+        if (self.FHI_OUT_KEYWORD_TOTAL_TIME in line) and (self.total_time is None):
+            line = line.strip()
+            res = self._total_time_pattern.findall(line)
+            if len(res) > 0:
+                self.total_time = res[0]
 
-        # Check Errors
-        self.error_check()
+def collect_output(working_directory="", FHI_output_file="aims.log"):
+    FHI_output_file = os.path.join(working_directory, FHI_output_file)
 
-# Main
-if __name__ == '__main__':
-    pass
+    init_geom_stream_parser = InitialGeometryStreamParser()
+    upd_geom_stream_parser = UpdateGeometryStreamParser()
+    efs_stream_parser = EnergyForcesStressesStreamParser()
+    metainfo_stream_parser = MetaInfoStreamParser()
+
+    with open(FHI_output_file, 'r') as f:
+        for line in f:
+            line = line.strip(" \t\n")
+            if line.startswith("#"):
+                continue
+
+            init_geom_stream_parser.process_line(line)
+            upd_geom_stream_parser.process_line(line)
+            efs_stream_parser.process_line(line)
+            metainfo_stream_parser.process_line(line)
+
+    if len(efs_stream_parser.free_energies_list) == 0 or len(efs_stream_parser.forces_lst) == 0:
+        raise ValueError("No free electronic energies found. Calculation could be broken")
+
+    if len(init_geom_stream_parser.lattice_vectors_lst) > 0:
+        lattice_vectors_traj = [
+                                   init_geom_stream_parser.lattice_vectors_lst] + upd_geom_stream_parser.lattice_vectors_traj
+    else:
+        lattice_vectors_traj = upd_geom_stream_parser.lattice_vectors_traj
+
+    positions_traj = [init_geom_stream_parser.positions_lst] + upd_geom_stream_parser.positions_traj
+
+    if len(positions_traj) == 0:
+        raise ValueError("No cells or positions info found. Calculation could be broken")
+
+    output_generic_dict = {
+        'cells': np.array(lattice_vectors_traj),
+        'energy_pot': np.array(efs_stream_parser.free_energies_list),
+        'energy_tot': np.array(efs_stream_parser.free_energies_list),
+        'forces': np.array(efs_stream_parser.forces_lst),
+        'positions': np.array(positions_traj),
+        # 'steps'
+        # 'temperature'
+        # 'computation_time'
+        # 'unwrapped_positions'
+        # 'indices'
+    }
+
+    output_dft_dict = {
+        'free_energy': np.array(efs_stream_parser.free_energies_list),
+        'energy_corrected': np.array(efs_stream_parser.energies_corrected_list),
+        'energy_uncorrected': np.array(efs_stream_parser.energies_uncorrected_list),
+    }
+
+    if len(efs_stream_parser.stresses_lst) > 0:
+        output_generic_dict["stresses"] = efs_stream_parser.stresses_lst
+        stresses = output_generic_dict["stresses"]
+        output_generic_dict["pressures"] = np.array([-np.trace(stress) / 3.0 for stress in stresses])
+
+    if len(output_generic_dict["cells"]) > 0:
+        cells = output_generic_dict["cells"]
+        output_generic_dict["volume"] = np.array([np.linalg.det(cell) for cell in cells])
+
+    meta_info_dict = {}
+    if metainfo_stream_parser.version is not None:
+        meta_info_dict[EXPORT_FHI_AIMS_VERSION] = metainfo_stream_parser.version
+    if metainfo_stream_parser.aims_uuid is not None:
+        meta_info_dict[EXPORT_AIMS_UUID] = metainfo_stream_parser.aims_uuid
+    if metainfo_stream_parser.total_time is not None:
+        meta_info_dict[EXPORT_TOTAL_TIME] = metainfo_stream_parser.total_time
+
+    return output_generic_dict, output_dft_dict, meta_info_dict

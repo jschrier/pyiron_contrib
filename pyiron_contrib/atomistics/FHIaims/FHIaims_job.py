@@ -3,13 +3,12 @@ from pyiron_atomistics.atomistics.job.atomistic import AtomisticGenericJob
 from pyiron_atomistics.atomistics.structure.atoms import ase_to_pyiron
 from pyiron_base import DataContainer, state
 from .FHIaims_input import write_input
-from .FHIaims_output import FHIaimsOutput
+from .FHIaims_output import collect_output
 
 # everything from the Basics of Running FHI-aims tutorials "https://fhi-aims-club.gitlab.io/tutorials/basics-of-running-fhi-aims/1-Molecules/"
 
 # these should be the default settings.  
 # TODO: think more clearly about what behavior we actually want...I'm defaulting to molecular for now
-# TODO:  "species" was the best name that I could find for this, but I don't know...
 
 # setup some defaults
 input_dict = {
@@ -17,7 +16,7 @@ input_dict = {
     "relativistic": "atomic_zora scalar",
     "relax_geometry": "bfgs 5e-3",
     "spin": "none",
-    "species": "light"
+    "precision": "light"
 }
 
 class FHIaims(AtomisticGenericJob):
@@ -55,8 +54,8 @@ class FHIaims(AtomisticGenericJob):
 
     def write_input(self):
         keywords = self.input.to_builtin()
-        species = keywords["species"]
-        del keywords["species"]
+        species = keywords["precision"]
+        del keywords["precision"]
 
         write_input(
             structure=self.structure,
@@ -69,18 +68,19 @@ class FHIaims(AtomisticGenericJob):
 # TODO: implement output
 
     def collect_output(self):
-        output_file = os.path.join(self.working_directory, 'aims.log')
-        if os.path.exists(output_file):
-            output = FHIaimsOutput(filePath=output_file)
-            output_dict = output.__dict__
-            final_structure = ase_to_pyiron(output.final_structure)
-            with self.project_hdf5.open("output/generic") as h5out:
-                h5out["energy_tot"] = output_dict["energy"]
-            with self.project_hdf5.open("output") as h5:
-                final_structure.to_hdf(hdf=h5)
-                del output_dict['final_structure'] # Remove ase atoms (incompatible with hd5)
-                del output_dict['init_structure'] # Remove ase atoms (incompatible with hd5)
-                h5["FHIaims"] = output_dict
+        output_dict, output_dft_dict, meta_info_dict = collect_output      (
+             working_directory=self.working_directory,
+            FHI_output_file='aims.log')
+
+        with self.project_hdf5.open("output") as hdf5_output:
+            with hdf5_output.open("generic") as hdf5_generic:
+                for k, v in output_dict.items():
+                    hdf5_generic[k] = v
+            with hdf5_output.open("dft") as hdf5_dft:
+                for k, v in output_dft_dict.items():
+                    hdf5_dft[k] = v
+            hdf5_output["meta_info"] = meta_info_dict
+
 
 # TODO: think about MPI and HDF
 
