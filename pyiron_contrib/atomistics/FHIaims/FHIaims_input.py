@@ -25,8 +25,6 @@ def write_input(structure,
         ASE atoms of structure you want to use.
     keyword_definitions : dictionary
         Keys define the FHIaims keyword, values define settings
-    species : string (default = "light")
-        defines the type of species definition used 
     control_filepath : string; default `control.in`
     geometry_filepath : string; default `geometry.in`
     species_filepath : string; default `~/pyiron/resources/FHIAims/species_defaults/defaults_2020/light`
@@ -67,6 +65,8 @@ def write_input(structure,
 
     # Format geometry.in file 
     # TODO: Add functionality for charge guesses, moments, etc.
+    # TODO:  Can probably just kick this over to ASE https://databases.fysik.dtu.dk/ase/ase/io/formatoptions.html
+
     geometry_filelines = [
         "atom {} {} {} {}\n".format(pos[0], pos[1], pos[2], s)
         for s, pos in zip(structure.get_chemical_symbols(), structure.positions)
