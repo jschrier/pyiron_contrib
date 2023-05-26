@@ -2,6 +2,16 @@
 
 """
 Output parsing module for FHI-aims
+
+This is a proof of principle, largely cribbed from Yury Lysogorskiy's (uncommitted) commit at https://github.com/pyiron/pyiron_contrib/commit/e18628fcb25c102ae15475018c8547fa5382fa77 
+
+Some alternative ideas (Not implemented) would be to:
+
+- modify GIMS: https://gims.ms1p.org/static/index.html
+- use the NOMAD FHIaims parser https://github.com/nomad-coe/nomad-parser-fhi-aims/blob/master/fhiaimsparser/fhiaims_parser.py
+- use ASE to parse https://databases.fysik.dtu.dk/ase/ase/io/formatoptions.html
+- Or to use the JSON output built into FHI-aims, along with some custom code
+
 """
 
 # Imports
